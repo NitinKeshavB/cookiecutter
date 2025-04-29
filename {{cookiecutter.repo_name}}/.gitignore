@@ -165,7 +165,6 @@ cython_debug/
 
 # custom
 test-reports
-tests/cookiecutter*json
 tests/artifacts
 .ruff_cache
 build
@@ -175,4 +174,3 @@ dist
 *env
 *.env
 *cache*
-sample

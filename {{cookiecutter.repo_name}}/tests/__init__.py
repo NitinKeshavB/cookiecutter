@@ -1,1 +1,1 @@
-"""Unit test package for {{ cookiecutter.project_slug }}."""
+"""Automated tests for {{cookiecutter.repo_name}}."""

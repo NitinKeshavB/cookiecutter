@@ -176,22 +176,28 @@ All tool config lives in `pyproject.toml`. Read it before assuming a convention.
 | Python floor | `>=3.7` — do not use syntax newer than that without raising it | `[project]` |
 | Coverage gate | `MINIMUM_TEST_COVERAGE_PERCENT=0` | `run.sh` |
 
-**Four traps worth knowing before you hit them:**
+**Five traps worth knowing before you hit them:**
 
 1. **Docstrings are required, despite appearances.** `pylint` disables
    `missing-function-docstring`, which looks like docstrings are optional. They are
    not: `flake8-docstrings` still enforces `D101`/`D102`/`D103`, and only `D100`
    (module) and `D107` (`__init__`) are ignored. **Every public function, method and
    class needs a docstring** or `make lint` fails.
-2. **`autoflake` deletes unused imports automatically**, with
+2. **Multi-line docstrings must start on the *second* line.** `pyproject.toml`
+   sets `docstring-convention = "all"`, which enables both `D212` ("summary
+   should start at the first line") and `D213` ("...at the second line") --
+   mutually exclusive rules. The ignore list drops `D212`, so **`D213` is the
+   one in force**. Write multi-line docstrings as a bare `"""`, then the summary
+   on the next line. Single-line docstrings are unaffected.
+3. **`autoflake` deletes unused imports automatically**, with
    `--remove-all-unused-imports`. An import kept for its side effect, or a
    re-export in `__init__.py` that nothing else references, will be stripped. Mark
    deliberate re-exports so they survive.
-3. **`mypy` runs with no `[tool.mypy]` section.** It is invoked with
+4. **`mypy` runs with no `[tool.mypy]` section.** It is invoked with
    `--config-file=./pyproject.toml`, which has no mypy table, so it runs on
    `--no-strict-optional --ignore-missing-imports` defaults only. Do not assume
    type errors will be caught for you.
-4. **`force_grid_wrap = 2`** means any import of two or more names gets exploded
+5. **`force_grid_wrap = 2`** means any import of two or more names gets exploded
    across lines. Let `isort` do it; do not hand-format imports and expect them to survive.
 
 **Adding a dependency** — all three steps, or it is not done:

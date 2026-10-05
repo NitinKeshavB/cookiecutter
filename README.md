@@ -128,15 +128,31 @@ The repo has two layers, and confusing them is the most common mistake:
 
 ```bash
 make install           # cookiecutter, pytest, pre-commit
-make generate-project  # render into ./sample/ and git-init it
-make test              # functional suite: generate, lint, build a wheel, test it
+make test-fast         # ~1s: render in-process and assert the output
+make test-quick        # everything not marked `slow`
+make test              # the whole suite, including the slow functional tier
 make lint              # repo-root hygiene + the Jinja safety scan
+make generate-project  # render into ./sample/ and git-init it
 make clean             # remove sample/ and caches
 ```
 
-`make test` is slow and hits the network — it builds a wheel in a throwaway venv and
-tests the installed package. For a tight loop, use `make generate-project` and work
-inside `sample/<name>/`.
+**Use `make test-fast` while editing.** It renders the template in-process — no git,
+no pip, no network, no wheel — and asserts the output tree, that no placeholder went
+unrendered, that the generator contract holds, and that the Jinja scan is clean. That
+is where template mistakes actually show up, and it takes about a second.
+
+`make test` adds the functional tier: it generates a project, `git init`s it, runs
+`make lint-ci` on it, then `make install` and `make test-wheel-locally` — building a
+wheel in a throwaway venv and testing the *installed* package. Minutes, and it needs
+the network. It is the gate before you push, not the loop you iterate in.
+
+### Changing a generation prompt
+
+`cookiecutter.json` is consumed by the template tree, by `tests/fixtures/`, and by
+`run.sh`. A one-sided edit leaves a literal `{{cookiecutter.x}}` in generated output.
+`hooks/pre_gen_project.py` validates the answers before any file is written, so an
+invalid `package_import_name` fails fast instead of producing an unimportable package.
+After any change: `make test-fast`, then `make test`.
 
 ### The Jinja contract
 
@@ -213,20 +229,18 @@ keeps the learning curve at zero and adds no startup latency.
 Verified, open, and tracked in [`CLAUDE.md`](./CLAUDE.md) §10 so they are not
 rediscovered:
 
-1. **`package_import_name` is not validated.** A hyphenated value generates a package
-   that cannot be imported, and cookiecutter exits 0. A `pre_gen_project.py` hook
-   would catch it.
-2. **Generated projects ship no CI.** `.github/build-test-publish.yml` in the template
-   is empty *and* misplaced — GitHub only reads `.github/workflows/`.
-3. **`pylint` is pinned at `v2.16.3`, which cannot install on Python 3.12+** — its
-   build imports `pkgutil.ImpImporter`, removed in 3.12 — so `make lint` fails for
-   anyone on a modern interpreter. CI does not catch it because it pins Python 3.8.
-4. **No `.vscode/` is shipped**, despite earlier versions of this README advertising
-   recommended extensions and editor settings as a headline feature.
-5. **Example test and fixture files are empty**, so a freshly generated project's
-   `make test` collects nothing and its coverage number is meaningless.
-6. **`requires-python = ">=3.7"`** is well past end-of-life and blocks modern syntax.
-7. **`ruff` is configured in the root `pyproject.toml` but run by nothing.**
+1. **No `.vscode/` is shipped**, despite earlier versions of this README
+   advertising recommended extensions and editor settings as a headline feature.
+2. **Example test and fixture files are empty**, so a freshly generated
+   project's `make test` collects nothing and its coverage number is meaningless.
+3. **`requires-python = ">=3.7"`** is past end-of-life and blocks modern syntax.
+   The shipped CI matrix tests 3.9 through 3.13, so the declared floor is not
+   actually exercised.
+4. **`ruff` is configured in the root `pyproject.toml` but run by nothing.**
+   Consolidating generated projects onto it would cut their seven pre-commit
+   hook environments to two or three; deliberately deferred.
+5. **`make generate-project` assumes a clean `sample/`** — run `make clean` first.
+6. **The generated README has an empty `###` heading** above its install block.
 
 ## License
 

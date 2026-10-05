@@ -236,35 +236,51 @@ tree — P0 #12 applies; never run them unprompted.**
 
 ## 10. Known defects — do not rediscover, do not silently "fix"
 
-Each is real and verified. Fix on request, in its own commit.
+Each is real and verified. Fix on request, in its own commit. `README.md` surfaces
+the user-facing subset (1-7); 8-9 are generator-internal. **Keep the two lists in
+sync** — a defect register that disagrees with itself is worse than none.
 
-1. **Generated projects ship with no CI.** `{{cookiecutter.repo_name}}/.github/build-test-publish.yml`
+1. **`package_import_name` is not validated — the most severe item here.** Nothing
+   checks it is a valid Python identifier, and cookiecutter exits 0 on a hyphenated
+   value. Generating with `package_import_name=my-package` produces
+   `src/my-package/`, a `pyproject.toml` whose `[tool.setuptools.package-data]` key is
+   `my-package`, and a README instructing `from my-package import ...` — which is a
+   `SyntaxError`. The project is unusable and nothing warns. A `hooks/pre_gen_project.py`
+   asserting `str.isidentifier()` and rejecting keywords fixes it in a few lines.
+2. **Generated projects ship with no CI.** `{{cookiecutter.repo_name}}/.github/build-test-publish.yml`
    is empty *and* misplaced — GitHub only reads `.github/workflows/`. The template
    `Makefile`/`run.sh` expose `publish-test`, `publish-prod`, `release-prod` that
    nothing automates.
-2. **`.vscode/` is promised but absent.** `README.md` advertises `.vscode/extensions.json`
-   and `.vscode/settings.json` as a headline feature; the template contains no
-   `.vscode/` directory, so no generated project gets one.
-3. **Empty example files.** `{{cookiecutter.repo_name}}/tests/unit_tests/example_test.py`
-   and `tests/fixtures/example_fixture.py` are zero bytes, so a fresh project's
-   `make test` collects nothing and coverage is vacuous
-   (`MINIMUM_TEST_COVERAGE_PERCENT=0` hides it).
-4. **`generate-project` assumes a clean `sample/`.** `run.sh` does `cd "$THIS_DIR/sample"; cd $(ls)`,
-   which breaks if `sample/` already holds more than one entry. Run `make clean` first.
-5. **README points at the upstream template.** The quick-start still clones
-   `mlops-club/cloud-course-python-package-cookiecutter`, not this repo.
-6. **`pylint` is pinned to a version that cannot install on Python 3.12+.**
+3. **`pylint` is pinned to a version that cannot install on Python 3.12+.**
    `{{cookiecutter.repo_name}}/.pre-commit-config.yaml` pins `PyCQA/pylint` at
    `v2.16.3`, whose build imports `pkgutil.ImpImporter` — removed in Python 3.12.
    `make lint` therefore fails for anyone on a modern interpreter with
    `AttributeError: module 'pkgutil' has no attribute 'ImpImporter'`. CI does not
    catch it because `build-pipeline.yml` pins Python 3.8. Fixing this means bumping
-   the pinned hook revisions, which is a real change with real churn — do it
-   deliberately, not as a side effect.
-7. **The template README has an empty heading.** `{{cookiecutter.repo_name}}/README.md`
-   line 23 is a bare `###` above the clone-and-install block. It needs a title; the
-   content below it suggests "Getting started". Left alone because naming it is a
-   content decision, not a mechanical fix.
+   every pinned hook revision, which is real churn — do it deliberately, not as a
+   side effect.
+4. **`.vscode/` is absent.** Earlier versions of `README.md` advertised
+   `.vscode/extensions.json` and `.vscode/settings.json` as a headline feature. No
+   such directory exists anywhere in the repo, so no generated project gets one. The
+   README claim has been removed; shipping the directory is still open.
+5. **Empty example files.** `{{cookiecutter.repo_name}}/tests/unit_tests/example_test.py`
+   and `tests/fixtures/example_fixture.py` are zero bytes, so a fresh project's
+   `make test` collects nothing and coverage is vacuous
+   (`MINIMUM_TEST_COVERAGE_PERCENT=0` hides it).
+6. **`requires-python = ">=3.7"`** is well past end-of-life. It blocks modern syntax
+   in generated packages for no benefit. Raising it is a breaking change for anyone
+   already consuming a generated package, so it is a deliberate decision.
+7. **`ruff` is configured but run by nothing.** The repo-root `pyproject.toml` carries
+   `[tool.ruff]` and `[tool.ruff.per-file-ignores]` sections, but no pre-commit hook
+   or task invokes `ruff` in either layer. Either wire it up or drop the config —
+   dead configuration misleads readers and agents alike.
+8. **`generate-project` assumes a clean `sample/`.** `run.sh` does
+   `cd "$THIS_DIR/sample"; cd $(ls)`, which breaks if `sample/` already holds more
+   than one entry. Run `make clean` first.
+9. **The template README has an empty heading.** `{{cookiecutter.repo_name}}/README.md`
+   has a bare `###` above the clone-and-install block. It needs a title; the content
+   below it suggests "Getting started". Left alone because naming it is a content
+   decision, not a mechanical fix.
 
 ---
 

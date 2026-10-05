@@ -20,9 +20,15 @@ lint:
 lint-ci:
 	bash run.sh lint:ci
 
+# Test tiers, fastest first:
+#   test-fast  - in-process render + assertions (~1s, no network). Use this while editing.
+#   test-quick - everything not marked `slow`
+#   test       - the full suite, including the wheel-in-a-venv functional tests (slow)
+test-fast:
+	bash run.sh test:fast
+
+test-quick:
+	bash run.sh test:quick
+
 test:
 	bash run.sh run-tests
-
-# write a github actions workflow
-# execute our tests
-# run our linting

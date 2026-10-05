@@ -10,4 +10,7 @@ TESTS_DIR_PARENT = (THIS_DIR / "..").resolve()
 sys.path.insert(0, str(TESTS_DIR_PARENT))
 
 # register fixtures so that they can be used in tests
-pytest_plugins = ["tests.fixtures.project_dir"]
+pytest_plugins = [
+    "tests.fixtures.project_dir",
+    "tests.fixtures.rendered_project",
+]

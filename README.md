@@ -77,4 +77,3 @@ This project template makes use of
 
   In summary, `Makefile` + `run.sh` is a decent solution for minimized learning curve (uses ubiquitous tools), easy setup,
   and performance (no slight hang when executing Python-based tasks).
-

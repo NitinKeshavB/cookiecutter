@@ -253,6 +253,18 @@ Each is real and verified. Fix on request, in its own commit.
    which breaks if `sample/` already holds more than one entry. Run `make clean` first.
 5. **README points at the upstream template.** The quick-start still clones
    `mlops-club/cloud-course-python-package-cookiecutter`, not this repo.
+6. **`pylint` is pinned to a version that cannot install on Python 3.12+.**
+   `{{cookiecutter.repo_name}}/.pre-commit-config.yaml` pins `PyCQA/pylint` at
+   `v2.16.3`, whose build imports `pkgutil.ImpImporter` — removed in Python 3.12.
+   `make lint` therefore fails for anyone on a modern interpreter with
+   `AttributeError: module 'pkgutil' has no attribute 'ImpImporter'`. CI does not
+   catch it because `build-pipeline.yml` pins Python 3.8. Fixing this means bumping
+   the pinned hook revisions, which is a real change with real churn — do it
+   deliberately, not as a side effect.
+7. **The template README has an empty heading.** `{{cookiecutter.repo_name}}/README.md`
+   line 23 is a bare `###` above the clone-and-install block. It needs a title; the
+   content below it suggests "Getting started". Left alone because naming it is a
+   content decision, not a mechanical fix.
 
 ---
 

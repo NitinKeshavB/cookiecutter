@@ -138,14 +138,27 @@ faster proxy for it. For a tight loop while iterating, `make generate-project`
 then run commands inside `sample/<name>/` by hand — but the functional suite is
 the gate.
 
-**Tier the rigor to the blast radius:**
+**Three tiers. Use the cheapest one that covers the change, and say which you ran.**
+
+| Tier | Command | Cost | What it does |
+|---|---|---|---|
+| fast | `make test-fast` | ~1s, no network | renders in-process, asserts the output tree, placeholders, contract and Jinja safety |
+| quick | `make test-quick` | ~1s | everything not marked `slow` |
+| full | `make test` | minutes, network | adds the functional suite: generate, `git init`, `make lint-ci`, `make install`, build a wheel in a throwaway venv and test the installed package |
+
+`make test-fast` is the loop to use while editing. It catches what actually
+goes wrong in a template -- an unrendered placeholder, a file that stopped
+being copied, a Jinja conditional emitting the wrong branch -- without building
+anything.
+
+**Tier the evidence to the blast radius:**
 
 | Change | Required evidence |
 |---|---|
 | Prose in a repo-root `.md` | read the file; no generation needed |
-| Any file under `{{cookiecutter.repo_name}}/` | `--scan` clean **and** `make generate-project` succeeds |
+| Any file under `{{cookiecutter.repo_name}}/` | `make test-fast` |
 | `cookiecutter.json`, `hooks/`, or a template `pyproject.toml`/`run.sh`/`Makefile` | full `make test` transcript pasted |
-| CI workflow, `version.txt`, release plumbing | full `make test` **and** explicit user approval (P0 #12) |
+| `.pre-commit-config.yaml` pins, CI workflow, `version.txt`, release plumbing | full `make test` **and** explicit user approval (P0 #12) |
 
 If you cannot execute the loop this session, say so plainly: cite the exact
 command, the expected output, and why it could not run. "Should work" is not
@@ -180,6 +193,8 @@ is HIGH+ with no refuter.
 cookiecutter/
   cookiecutter.json          <- the contract (§5)
   CLAUDE.md                  <- this file
+  hooks/
+    pre_gen_project.py       <- validates the answers before any file is written
   .claude/
     settings.json            <- permissions + the PreToolUse Jinja hook
     hooks/
@@ -190,11 +205,14 @@ cookiecutter/
   .pre-commit-config.yaml    <- repo-root hygiene; excludes the template tree
   version.txt                <- CI tags the repo with this on push to main
   tests/
-    conftest.py              <- registers tests.fixtures.project_dir
+    conftest.py              <- registers the fixture plugins
     consts.py                <- PROJECT_DIR
     utils/project.py         <- generate_project(), initialize_git_repo()
-    fixtures/project_dir.py  <- session-scoped generated project
-    functional_tests/        <- test__generate_project.py, test__makefile.py
+    fixtures/
+      rendered_project.py    <- FAST: in-process render, no git/pip/network
+      project_dir.py         <- SLOW: subprocess render + git init + lint
+    unit_tests/              <- the fast tier (§6)
+    functional_tests/        <- the slow tier, all marked `slow`
   .github/workflows/
     build-pipeline.yml       <- check-version-txt, lint, tests, push-tags
   {{cookiecutter.repo_name}}/   <- THE TEMPLATE (everything below is rendered)
@@ -204,6 +222,7 @@ cookiecutter/
     LOCAL-MEMORY/            <- agent artifact output root
     src/{{cookiecutter.package_import_name}}/
     tests/
+    .github/workflows/       <- CI shipped into generated projects
     pyproject.toml, Makefile, run.sh, .pre-commit-config.yaml, version.txt
 ```
 
@@ -223,7 +242,9 @@ to `run.sh` and expose it in the `Makefile`.
 | `make generate-project` | `generate-project` | render into `sample/`, git init, commit |
 | `make lint` | `lint` | `pre-commit run --all-files` |
 | `make lint-ci` | `lint:ci` | same, with `no-commit-to-branch` skipped |
-| `make test` | `run-tests` | `pytest tests/` — the functional suite (§6) |
+| `make test-fast` | `test:fast` | `pytest tests/unit_tests/` — the fast tier (§6) |
+| `make test-quick` | `test:quick` | everything not marked `slow` |
+| `make test` | `run-tests` | `pytest tests/` — the whole suite, including the slow tier |
 | `make clean` | `clean` | remove `sample/`, caches, build artifacts |
 | `make help` | `help` | list every `run.sh` function |
 
@@ -236,35 +257,51 @@ tree — P0 #12 applies; never run them unprompted.**
 
 ## 10. Known defects — do not rediscover, do not silently "fix"
 
-Each is real and verified. Fix on request, in its own commit.
+Each is real and verified. Fix on request, in its own commit. `README.md`
+carries the same list for users. **Keep the two in sync** — a defect register
+that disagrees with itself is worse than none.
 
-1. **Generated projects ship with no CI.** `{{cookiecutter.repo_name}}/.github/build-test-publish.yml`
-   is empty *and* misplaced — GitHub only reads `.github/workflows/`. The template
-   `Makefile`/`run.sh` expose `publish-test`, `publish-prod`, `release-prod` that
-   nothing automates.
-2. **`.vscode/` is promised but absent.** `README.md` advertises `.vscode/extensions.json`
-   and `.vscode/settings.json` as a headline feature; the template contains no
-   `.vscode/` directory, so no generated project gets one.
-3. **Empty example files.** `{{cookiecutter.repo_name}}/tests/unit_tests/example_test.py`
-   and `tests/fixtures/example_fixture.py` are zero bytes, so a fresh project's
-   `make test` collects nothing and coverage is vacuous
-   (`MINIMUM_TEST_COVERAGE_PERCENT=0` hides it).
-4. **`generate-project` assumes a clean `sample/`.** `run.sh` does `cd "$THIS_DIR/sample"; cd $(ls)`,
-   which breaks if `sample/` already holds more than one entry. Run `make clean` first.
-5. **README points at the upstream template.** The quick-start still clones
-   `mlops-club/cloud-course-python-package-cookiecutter`, not this repo.
-6. **`pylint` is pinned to a version that cannot install on Python 3.12+.**
-   `{{cookiecutter.repo_name}}/.pre-commit-config.yaml` pins `PyCQA/pylint` at
-   `v2.16.3`, whose build imports `pkgutil.ImpImporter` — removed in Python 3.12.
-   `make lint` therefore fails for anyone on a modern interpreter with
-   `AttributeError: module 'pkgutil' has no attribute 'ImpImporter'`. CI does not
-   catch it because `build-pipeline.yml` pins Python 3.8. Fixing this means bumping
-   the pinned hook revisions, which is a real change with real churn — do it
-   deliberately, not as a side effect.
-7. **The template README has an empty heading.** `{{cookiecutter.repo_name}}/README.md`
-   line 23 is a bare `###` above the clone-and-install block. It needs a title; the
-   content below it suggests "Getting started". Left alone because naming it is a
-   content decision, not a mechanical fix.
+1. **`.vscode/` is absent.** Earlier versions of `README.md` advertised
+   `.vscode/extensions.json` and `.vscode/settings.json` as a headline feature.
+   No such directory exists anywhere in the repo, so no generated project gets
+   one. The README claim is gone; shipping the directory is still open, and it
+   would be a genuine quality-of-life win given the toolchain expects editor
+   integration (`radon` surfacing complexity as squiggles, `black` on save).
+2. **Example test and fixture files are empty.**
+   `{{cookiecutter.repo_name}}/tests/unit_tests/example_test.py` and
+   `tests/fixtures/example_fixture.py` are zero bytes, so a fresh project's
+   `make test` collects nothing and its coverage number is meaningless
+   (`MINIMUM_TEST_COVERAGE_PERCENT=0` hides it). A single real passing test and
+   one real fixture would make `make test` mean something on day one.
+3. **`requires-python = ">=3.7"`** is well past end-of-life. It blocks modern
+   syntax in generated packages for no benefit, and the shipped CI matrix does
+   not test 3.7 or 3.8 because those runtimes are unavailable — so the declared
+   floor is aspirational. Raising it is a breaking change for consumers of an
+   already-published generated package, so it is a deliberate decision.
+4. **`ruff` is configured but run by nothing.** The repo-root `pyproject.toml`
+   carries `[tool.ruff]` and `[tool.ruff.per-file-ignores]`, but no hook or task
+   invokes `ruff` in either layer. Either wire it up or drop the config — dead
+   configuration misleads readers and agents alike. Consolidating generated
+   projects onto `ruff` would also cut their seven pre-commit hook environments
+   to two or three; that was considered and deliberately deferred.
+5. **`generate-project` assumes a clean `sample/`.** `run.sh` does
+   `cd "$THIS_DIR/sample"; cd $(ls)`, which breaks if `sample/` already holds
+   more than one entry. Run `make clean` first.
+6. **The template README has an empty heading.**
+   `{{cookiecutter.repo_name}}/README.md` has a bare `###` above the
+   clone-and-install block. It needs a title; the content below suggests
+   "Getting started". Left alone because naming it is a content decision, not a
+   mechanical fix.
+
+**Fixed, recorded so the history is legible:** generated projects shipped no CI
+(the workflow file was empty and misplaced); `package_import_name` was
+unvalidated, so a hyphenated answer produced an unimportable package with a
+zero exit code; `pylint` was pinned at a revision that cannot install on Python
+3.12+, which broke `make lint` for anyone on a modern interpreter; the repo-root
+`.pre-commit-config.yaml` was an empty file, so `lint:ci` could never run;
+`run.sh run-tests` quoted `"${@:-...}"` wrongly, so `test:quick` always exited 4;
+and `tests/utils/project.py` renamed an unborn git branch, which only git >= 2.30
+accepts, so the whole functional tier errored at fixture setup on older git.
 
 ---
 

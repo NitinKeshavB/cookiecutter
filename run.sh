@@ -22,14 +22,25 @@ function lint:ci {
     SKIP=no-commit-to-branch pre-commit run --all-files
 }
 
-# execute tests that are not marked as `slow`
+# fast tier: render the template in-process and assert the output is correct.
+# No git, no pip, no network, no wheel -- about a second. This is the loop to
+# use while editing the template.
+function test:fast {
+    run-tests "$THIS_DIR/tests/unit_tests/"
+}
+
+# everything except the tests marked `slow`
 function test:quick {
     run-tests -m "not slow" ${@:-"$THIS_DIR/tests/"}
 }
 
-# (example) ./run.sh test tests/test_states_info.py::test__slow_add
+# (example) ./run.sh run-tests tests/unit_tests/test__rendering.py::test__expected_paths_exist
+#
+# Note the quoting on "${@:-...}": unquoted, bash word-splits each argument, so
+# `run-tests -m "not slow"` reached pytest as `-m not slow` and pytest treated
+# `slow` as a file path (usage error, exit 4). That is why test:quick never ran.
 function run-tests {
-    python -m pytest ${@:-"$THIS_DIR/tests/"}
+    python -m pytest "${@:-$THIS_DIR/tests/}"
 }
 
 function generate-project {

@@ -33,6 +33,20 @@ make install
 make test
 ```
 
+## Continuous integration
+
+`.github/workflows/build-test-publish.yml` runs on every pull request and push to
+`main`: lint, then tests across Python 3.9-3.13, then a build that installs the
+resulting wheel in a clean venv and tests *that* — which is the only step that
+catches a module missing from the wheel.
+
+Releases are tag-driven. Push a tag matching `version.txt` (e.g. `v0.1.0`) and the
+publish jobs run: TestPyPI first, then PyPI. A tag that disagrees with `version.txt`
+fails the pipeline before anything is uploaded, and publishing never happens on an
+ordinary push. Add `TEST_PYPI_TOKEN` and `PROD_PYPI_TOKEN` under
+*Settings > Secrets and variables > Actions*; to require human approval before a
+production release, create a GitHub Environment named `pypi` with a required reviewer.
+
 ## AI agent harness
 
 This project ships a [Claude Code](https://claude.com/claude-code) harness: a set of

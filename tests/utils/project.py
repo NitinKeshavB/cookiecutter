@@ -13,10 +13,14 @@ def initialize_git_repo(repo_dir: Path):
     """Run git commands to make a directory into a valid git repository."""
     # git init
     subprocess.run(["git", "init"], cwd=repo_dir, check=True)
-    # commit the contents to the 'main' branch
-    subprocess.run(["git", "branch", "-M", "main"], cwd=repo_dir, check=True)
+    # Commit first, then rename the branch. Renaming before the first commit
+    # means renaming an *unborn* branch, which only git >= 2.30 supports -- on
+    # older git this fails with "refname refs/heads/master not found" and takes
+    # every functional test down with it at fixture setup. Committing first
+    # works on every git version.
     subprocess.run(["git", "add", "--all"], cwd=repo_dir, check=True)
     subprocess.run(["git", "commit", "-m", "'feat: initial commit by pytest'"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "branch", "-M", "main"], cwd=repo_dir, check=True)
 
 
 def generate_project(template_values: Dict[str, str], test_session_id: str):

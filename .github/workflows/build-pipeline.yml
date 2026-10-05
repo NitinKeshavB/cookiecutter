@@ -1,48 +1,110 @@
+# CI for the cookiecutter template itself.
+#
+# Note: this file lives at the repo root, OUTSIDE the template directory, so
+# cookiecutter never renders it. GitHub's ${{ ... }} expressions are used
+# directly here -- no Jinja raw blocks, unlike the workflow shipped inside
+# {{cookiecutter.repo_name}}/.github/workflows/.
 name: Build, Test
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened]
   push:
     branches:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# Supersede an in-flight run on the same ref rather than queueing behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check-version-txt:
+    name: Check version.txt is a new version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
+          # Full history so existing tags are fetched; the check below depends
+          # on them being present.
           fetch-depth: 0
       - name: Tag with the release version
+        # `git tag` fails if the tag already exists, so this asserts that
+        # version.txt has been bumped to a value not yet released. The tag is
+        # local only -- push-tags publishes it after everything passes.
         run: |
-          git tag $(cat version.txt)
+          git tag "$(cat version.txt)"
 
-  lint-format-and-static-code-checks:
+  # Fast feedback: renders the template in-process and asserts the output. No
+  # git, pip, pre-commit or wheel build, so it finishes in seconds and catches
+  # most template mistakes before the slow job starts.
+  test-fast:
+    name: Fast tests (in-process render)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python 3.8
-        uses: actions/setup-python@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: 3.8
-      - name: Install pre-commit
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install test dependencies
         run: |
-          pip install pre-commit
-      - name: Lint, Format, and other static code quality checks
+          python -m pip install --upgrade pip
+          python -m pip install cookiecutter pytest pyyaml
+      - name: Run the fast test tier
+        run: make test-fast
+
+  lint-format-and-static-code-checks:
+    name: Lint, format and static code checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      # pre-commit builds an isolated environment per hook repo. Caching them
+      # keyed on the config turns a cold multi-minute start into seconds.
+      - name: Cache pre-commit environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-py3.12-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: Install pre-commit
+        run: python -m pip install pre-commit
+      - name: Lint, format, and other static code quality checks
         run: |
           /bin/bash -x run.sh lint:ci
 
   execute-tests:
+    name: Full test suite (generates, builds and installs a wheel)
+    # Don't spend minutes on the slow suite if the cheap signals already failed.
+    needs: [test-fast, lint-format-and-static-code-checks]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python 3.8
-        uses: actions/setup-python@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: 3.8
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      # The functional tests run `make lint-ci` inside the project they
+      # generate, which builds that project's own pre-commit environments.
+      - name: Cache pre-commit environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: >-
+            pre-commit-generated-${{ runner.os }}-py3.12-${{
+            hashFiles('{{cookiecutter.repo_name}}/.pre-commit-config.yaml') }}
       - name: Configure git CLI
+        # The functional tests `git init` and commit the generated project.
         run: |
           git config --global user.email "nitin.keshav11@gmail.com"
           git config --global user.name "NitinKeshav"
@@ -58,30 +120,13 @@ jobs:
       - check-version-txt
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Push tags
         run: |
+          git tag "$(cat version.txt)"
           git push origin --tags
-
-  # https://docs.github.com/en/actions/learn-github-actions/contexts#example-printing-context-information-to-the-log
-  dump-contexts-to-log:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dump GitHub context
-        id: github_context_step
-        run: echo '{% raw %}${{ toJSON(github) }}'{% endraw %}
-      - name: Dump job context
-        run: echo '{% raw %}${{ toJSON(job) }}'{% endraw %}
-      - name: Dump steps context
-        run: echo '{% raw %}${{ toJSON(steps) }}'{% endraw %}
-      - name: Dump runner context
-        run: echo '{% raw %}${{ toJSON(runner) }}'{% endraw %}
-      - name: Dump strategy context
-        run: echo '{% raw %}${{ toJSON(strategy) }}'{% endraw %}
-      - name: Dump matrix context
-        run: echo '{% raw %}${{ toJSON(matrix) }}'{% endraw %}
-      - name: Dump secrets
-        run: echo '{% raw %}${{ toJSON(secrets) }}'{% endraw %}
-      - name: Dump vars
-        run: echo '{% raw %}${{ toJSON(vars) }}'{% endraw %}

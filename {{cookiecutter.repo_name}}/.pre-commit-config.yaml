@@ -47,7 +47,7 @@ repos:
       - id: detect-private-key
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: "v1.2.0"
+    rev: "v1.13.0"
     hooks:
       - id: mypy
         args:
@@ -58,21 +58,21 @@ repos:
           ]
 
   - repo: https://github.com/psf/black
-    rev: 23.1.0
+    rev: 24.10.0
     hooks:
       - id: black
         args:
           - --config=./pyproject.toml
 
   - repo: https://github.com/PyCQA/pylint
-    rev: v2.16.3
+    rev: v3.3.1
     hooks:
       - id: pylint
         args:
           - --rcfile=./pyproject.toml
 
   - repo: https://github.com/PyCQA/flake8
-    rev: 6.0.0
+    rev: 7.1.1
     hooks:
       - id: flake8
         args:
@@ -83,14 +83,14 @@ repos:
           - Flake8-pyproject
 
   - repo: https://github.com/pycqa/isort
-    rev: 5.12.0
+    rev: 5.13.2
     hooks:
       - id: isort
         args:
           - --settings-path=./pyproject.toml
 
   - repo: https://github.com/PyCQA/autoflake
-    rev: v2.0.1
+    rev: v2.3.1
     hooks:
       - id: autoflake
         args:

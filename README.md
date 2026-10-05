@@ -27,6 +27,41 @@ pip install cookiecutter
 cookiecutter https://github.com/mlops-club/cloud-course-python-package-cookiecutter.git
 ```
 
+You will be prompted for:
+
+| Prompt | Meaning | Example |
+|--------|---------|---------|
+| `repo_name` | the directory and distribution name | `my-awesome-package` |
+| `package_import_name` | the importable module name | `my_awesome_package` |
+| `harness_doctrine` | how much AI-agent doctrine to ship (`lean` or `full`) | `lean` |
+
+## The AI agent harness
+
+Generated projects ship a [Claude Code](https://claude.com/claude-code) harness so a
+coding agent is productive in them immediately: an operational doctrine (`CLAUDE.md`),
+seven slash commands, five skills, and a `context/` spec layer that is **pre-seeded
+with the project's real layout, toolchain and patterns** rather than left as blank
+placeholders.
+
+`harness_doctrine` picks the weight. `lean` carries the core — evidence weights, named
+refuters, surgical-change rules and the verification loop. `full` adds vocabulary
+locking, pattern reuse, repro kernels and reflexion lessons, which pay off once a
+project has accumulated real domain terms and patterns.
+
+This repository has its own, separate harness for working on the template itself —
+see `CLAUDE.md` and `.claude/`. Its central rule is the Jinja contract: everything
+under `{{cookiecutter.repo_name}}/` is rendered at generation time, so a stray `{{`,
+`{%` or `{#` there breaks every generation. That rule is enforced, not merely
+documented, by `.claude/hooks/check_jinja_safety.py`, which runs as a Claude Code
+`PreToolUse` hook and again in `pre-commit`. Audit it any time with:
+
+```bash
+python3 .claude/hooks/check_jinja_safety.py --scan
+```
+
+The harness is adapted from the Claude Code Agent Harness by Viacheslav Tronko (MIT);
+see `HARNESS-ATTRIBUTION.md` for provenance and the list of deviations.
+
 ## What are the opinions in this template?
 
 ### Notable comments about the file structure
@@ -77,4 +112,3 @@ This project template makes use of
 
   In summary, `Makefile` + `run.sh` is a decent solution for minimized learning curve (uses ubiquitous tools), easy setup,
   and performance (no slight hang when executing Python-based tasks).
-

@@ -1,4 +1,6 @@
 {
   "repo_name": "repo-name",
-  "package_import_name": "example_package"
+  "package_import_name": "example_package",
+  "harness_doctrine": ["lean", "full"],
+  "_copy_without_render": [".claude/skills/*"]
 }

@@ -1,0 +1,50 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 .claude/hooks/check_jinja_safety.py:*)",
+      "Bash(make generate-project)",
+      "Bash(make test)",
+      "Bash(make lint)",
+      "Bash(make lint-ci)",
+      "Bash(make clean)",
+      "Bash(make install)",
+      "Bash(bash run.sh:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(cookiecutter:*)",
+      "Bash(pre-commit run:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh repo create:*)",
+      "Bash(gh secret set:*)",
+      "Bash(gh api:*)",
+      "Bash(gh workflow run:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_jinja_safety.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

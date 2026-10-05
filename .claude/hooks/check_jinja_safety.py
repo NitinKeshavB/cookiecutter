@@ -30,6 +30,12 @@ from pathlib import Path
 # The template directory whose contents cookiecutter renders through Jinja2.
 TEMPLATE_DIR_NAME = "{{cookiecutter.repo_name}}"
 
+# Cookiecutter also renders its own hook scripts before executing them, so a
+# stray delimiter in hooks/ breaks generation exactly like one in the template.
+# Anchored at the repo root on purpose: .claude/hooks/ shares the name and is
+# NOT rendered.
+HOOKS_DIR_NAME = "hooks"
+
 # `{{ ... }}` is legitimate only when it reads a cookiecutter variable.
 ALLOWED_EXPR = re.compile(r"\{\{-?\s*cookiecutter\.[A-Za-z_][A-Za-z0-9_]*.*?-?\}\}", re.DOTALL)
 
@@ -42,6 +48,14 @@ EXPR_OPEN = re.compile(r"\{\{")
 TAG_OPEN = re.compile(r"\{%-?\s*(\w+)")
 COMMENT_OPEN = "{#"
 COMMENT_CLOSE = "#}"
+
+# Text inside a raw block is literal by definition -- it is escape hatch #2 in
+# CLAUDE.md section 4, and the correct way to carry GitHub Actions `${{ ... }}`
+# expressions through rendering. Strip these before looking for stray
+# delimiters, or the gate flags the very fix it recommends.
+RAW_BLOCK = re.compile(r"\{%-?\s*raw\s*-?%\}.*?\{%-?\s*endraw\s*-?%\}", re.DOTALL)
+RAW_OPEN = re.compile(r"\{%-?\s*raw\s*-?%\}")
+RAW_CLOSE = re.compile(r"\{%-?\s*endraw\s*-?%\}")
 
 # Only text files can carry Jinja hazards; skip binary-ish payloads.
 SKIP_SUFFIXES = frozenset(
@@ -65,13 +79,34 @@ def load_copy_without_render(repo_root: Path):
         return []
 
 
-def template_relative_path(path: Path):
-    """Return the path relative to the template dir, or None if outside it."""
+def find_repo_root(path: Path, fallback: Path) -> Path:
+    """Return the repo root, preferring one derived from the path itself."""
     parts = path.parts
-    if TEMPLATE_DIR_NAME not in parts:
-        return None
-    index = parts.index(TEMPLATE_DIR_NAME)
-    return "/".join(parts[index + 1 :])
+    if TEMPLATE_DIR_NAME in parts:
+        return Path(*parts[: parts.index(TEMPLATE_DIR_NAME)])
+    return fallback
+
+
+def classify(path: Path, repo_root: Path):
+    """Classify a path as rendered-and-exemptible, rendered, or not rendered.
+
+    Returns (label, display_path) where label is "template" (rendered, may be
+    exempted via _copy_without_render), "hooks" (rendered, never exempt), or
+    None when cookiecutter does not render the file at all.
+    """
+    parts = path.parts
+    if TEMPLATE_DIR_NAME in parts:
+        index = parts.index(TEMPLATE_DIR_NAME)
+        return "template", "/".join(parts[index + 1 :])
+
+    try:
+        relative = path.resolve().relative_to(repo_root.resolve())
+    except (ValueError, OSError):
+        return None, None
+    # Only the repo-root hooks/ directory is a cookiecutter hooks dir.
+    if len(relative.parts) >= 2 and relative.parts[0] == HOOKS_DIR_NAME:
+        return "hooks", relative.as_posix()
+    return None, None
 
 
 def is_exempt(rel_path: str, globs) -> bool:
@@ -91,6 +126,22 @@ def is_exempt(rel_path: str, globs) -> bool:
 def find_hazards(text: str):
     """Return a list of human-readable Jinja hazards found in `text`."""
     hazards = []
+
+    # An unclosed raw block is itself a hazard, and would also make stripping
+    # below swallow the rest of the file, so check the pairing first.
+    raw_opens = len(RAW_OPEN.findall(text))
+    raw_closes = len(RAW_CLOSE.findall(text))
+    if raw_opens != raw_closes:
+        hazards.append(
+            "{0} unbalanced raw block(s): {1} 'raw' opener(s) but {2} "
+            "'endraw' closer(s).".format(
+                abs(raw_opens - raw_closes), raw_opens, raw_closes
+            )
+        )
+        return hazards
+
+    # Everything inside a balanced raw block is literal text, not Jinja.
+    text = RAW_BLOCK.sub("", text)
 
     # Unbalanced comment delimiters -- the failure mode that motivated this gate.
     opens = text.count(COMMENT_OPEN)
@@ -155,16 +206,14 @@ def run_hook() -> int:
         return 0
 
     path = Path(raw_path)
-    rel_path = template_relative_path(path)
-    if rel_path is None:
+    repo_root = find_repo_root(path, Path(payload.get("cwd") or "."))
+    label, rel_path = classify(path, repo_root)
+    if label is None:
         return 0
 
-    repo_root = Path(payload.get("cwd") or ".").resolve()
-    parts = path.parts
-    if TEMPLATE_DIR_NAME in parts:
-        repo_root = Path(*parts[: parts.index(TEMPLATE_DIR_NAME)])
-
-    if is_exempt(rel_path, load_copy_without_render(repo_root)):
+    # _copy_without_render applies to the template tree only; hook scripts are
+    # always rendered and cannot be exempted.
+    if label == "template" and is_exempt(rel_path, load_copy_without_render(repo_root)):
         return 0
 
     hazards = find_hazards(pending_content(tool_name, tool_input))
@@ -173,8 +222,13 @@ def run_hook() -> int:
 
     sys.stderr.write(
         "BLOCKED by .claude/hooks/check_jinja_safety.py\n\n"
-        "{0} is inside the cookiecutter template directory, so cookiecutter "
-        "renders it through Jinja2 at generation time.\n\n".format(rel_path)
+        "{0} is {1}, so cookiecutter renders it through Jinja2 at generation "
+        "time.\n\n".format(
+            rel_path,
+            "inside the cookiecutter template directory"
+            if label == "template"
+            else "a cookiecutter hook script",
+        )
     )
     for hazard in hazards:
         sys.stderr.write("  - {0}\n".format(hazard))
@@ -201,24 +255,30 @@ def run_scan(repo_root: Path) -> int:
     exempt = 0
     findings = []
 
-    for path in sorted(template_dir.rglob("*")):
-        if not path.is_file() or path.suffix in SKIP_SUFFIXES:
-            continue
-        rel_path = template_relative_path(path)
-        if rel_path is None:
-            continue
-        if is_exempt(rel_path, globs):
-            exempt += 1
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            continue
-        scanned += 1
-        for hazard in find_hazards(text):
-            findings.append((rel_path, hazard))
+    roots = [template_dir]
+    hooks_dir = repo_root / HOOKS_DIR_NAME
+    if hooks_dir.is_dir():
+        roots.append(hooks_dir)
 
-    print("Jinja safety scan of {0}/".format(TEMPLATE_DIR_NAME))
+    for root in roots:
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.suffix in SKIP_SUFFIXES:
+                continue
+            label, rel_path = classify(path, repo_root)
+            if label is None:
+                continue
+            if label == "template" and is_exempt(rel_path, globs):
+                exempt += 1
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            scanned += 1
+            for hazard in find_hazards(text):
+                findings.append((rel_path, hazard))
+
+    print("Jinja safety scan of {0}/ and {1}/".format(TEMPLATE_DIR_NAME, HOOKS_DIR_NAME))
     print("  rendered files scanned : {0}".format(scanned))
     print("  exempt (copy verbatim) : {0}".format(exempt))
 
